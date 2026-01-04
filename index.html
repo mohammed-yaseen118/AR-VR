@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Luxury Jewellery Display</title>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    
+    <style>
+      /* UI  Styles */
+      #ui-layer {
+        position: absolute;
+        bottom: 10%;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10;
+        display: none; /* Hidden by default */
+        text-align: center;
+      }
+
+      .close-btn {
+        background: rgba(20, 20, 20, 0.9);
+        border: 1px solid #d4af37; /* Gold border */
+        color: #d4af37;
+        padding: 12px 30px;
+        font-family: 'Helvetica Neue', sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.3s ease;
+      }
+
+      .close-btn:hover {
+        background: #d4af37;
+        color: #000;
+      }
+
+      #header-overlay {
+        position: absolute;
+        top: 5%;
+        width: 100%;
+        text-align: center;
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .brand-title {
+        font-family: 'Times New Roman', serif;
+        color: #d4af37;
+        font-size: 3rem;
+        letter-spacing: 8px;
+        text-transform: uppercase;
+        text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        margin: 0;
+        border-bottom: 1px solid rgba(212, 175, 55, 0.3);
+        display: inline-block;
+        padding-bottom: 10px;
+      }
+
+      body { margin: 0; overflow: hidden; background-color: #000; }
+    </style>
+
+    <script>
+      /**
+       * SYSTEM: Gallery Manager
+       * Handles the global state of the application.
+       * Ensures only one ring can be focused at a time.
+       */
+      AFRAME.registerSystem('gallery-manager', {
+        init: function () {
+          this.isFocused = false;
+          this.activeRing = null;
+          this.uiLayer = document.getElementById('ui-layer');
+          this.closeBtn = document.getElementById('close-btn');
+
+          // Bind close button click
+          this.closeBtn.addEventListener('click', () => {
+            this.resetView();
+          });
+        },
+
+        requestFocus: function (ringEl) {
+          if (this.isFocused) return false; // Reject if already focused
+          
+          this.isFocused = true;
+          this.activeRing = ringEl;
+          this.uiLayer.style.display = 'block';
+          return true;
+        },
+
+        resetView: function () {
+          if (!this.activeRing) return;
+
+          // Tell the active ring to go home
+          this.activeRing.emit('reset-ring');
+          
+          // Reset System State
+          this.isFocused = false;
+          this.activeRing = null;
+          this.uiLayer.style.display = 'none';
+        }
+      });
+
+      /**
+       * COMPONENT: Ring Interaction
+       * Handles the click-to-focus logic and animation configuration.
+       */
+      AFRAME.registerComponent('ring-interaction', {
+        schema: {
+          targetPos: {type: 'vec3', default: {x: 0, y: 1.5, z: 2}}, // Position close to camera
+          targetScale: {type: 'vec3', default: {x: 1.5, y: 1.5, z: 1.5}}
+        },
+
+        init: function () {
+          this.system = this.el.sceneEl.systems['gallery-manager'];
+          
+          // Store original transform
+          this.originalPos = { ...this.el.object3D.position };
+          this.originalScale = { ...this.el.object3D.scale };
+          this.originalRot = { ...this.el.object3D.rotation };
+
+          // Event Listener for Click
+          this.el.addEventListener('click', () => {
+            // Ask system if we can focus
+            if (this.system.requestFocus(this.el)) {
+              this.animateToFocus();
+            }
+          });
+
+          // Event Listener for Reset (triggered by System)
+          this.el.addEventListener('reset-ring', () => {
+            this.animateToHome();
+          });
+        },
+
+        animateToFocus: function () {
+          // Enable the drag-rotator component
+          this.el.setAttribute('drag-rotator', '');
+
+          // Animate Position
+          this.el.setAttribute('animation__pos', {
+            property: 'position',
+            to: this.data.targetPos,
+            dur: 1000,
+            easing: 'easeInOutQuad'
+          });
+
+          // Animate Scale
+          this.el.setAttribute('animation__scale', {
+            property: 'scale',
+            to: this.data.targetScale,
+            dur: 1000,
+            easing: 'easeInOutQuad'
+          });
+          
+          // Reset rotation to face camera nicely before allowing drag
+          this.el.setAttribute('animation__rot', {
+            property: 'rotation',
+            to: '0 0 0', // Reset rotation for inspection
+            dur: 1000,
+            easing: 'easeInOutQuad'
+          });
+        },
+
+        animateToHome: function () {
+          // Disable drag-rotator
+          this.el.removeAttribute('drag-rotator');
+
+          // Animate Position Back
+          this.el.setAttribute('animation__pos', {
+            property: 'position',
+            to: this.originalPos,
+            dur: 800,
+            easing: 'easeInOutQuad'
+          });
+
+          // Animate Scale Back
+          this.el.setAttribute('animation__scale', {
+            property: 'scale',
+            to: this.originalScale,
+            dur: 800,
+            easing: 'easeInOutQuad'
+          });
+
+          // Animate Rotation Back (to original placement)
+          // We convert radians (object3D) to degrees for the animation component
+          const rot = {
+            x: THREE.MathUtils.radToDeg(this.originalRot.x),
+            y: THREE.MathUtils.radToDeg(this.originalRot.y),
+            z: THREE.MathUtils.radToDeg(this.originalRot.z)
+          };
+
+          this.el.setAttribute('animation__rot', {
+            property: 'rotation',
+            to: rot,
+            dur: 800,
+            easing: 'easeInOutQuad'
+          });
+        }
+      });
+
+      /**
+       * COMPONENT: Drag Rotator
+       * Handles continuous drag to rotate on Y-axis.
+       * Only active when the ring is focused.
+       */
+      AFRAME.registerComponent('drag-rotator', {
+        schema: {
+          speed: {type: 'number', default: 0.01}
+        },
+
+        init: function () {
+          this.isDragging = false;
+          this.startX = 0;
+          this.currentRotationY = 0;
+          
+          // Bind methods to 'this' context
+          this.onMouseDown = this.onMouseDown.bind(this);
+          this.onMouseMove = this.onMouseMove.bind(this);
+          this.onMouseUp = this.onMouseUp.bind(this);
+
+          // Add listeners to the SCENE (to catch drags outside the object mesh)
+          this.el.sceneEl.addEventListener('mousedown', this.onMouseDown);
+          this.el.sceneEl.addEventListener('mousemove', this.onMouseMove);
+          this.el.sceneEl.addEventListener('mouseup', this.onMouseUp);
+          this.el.sceneEl.addEventListener('touchstart', this.onMouseDown);
+          this.el.sceneEl.addEventListener('touchmove', this.onMouseMove);
+          this.el.sceneEl.addEventListener('touchend', this.onMouseUp);
+        },
+
+        remove: function () {
+          // Clean up listeners when component is removed (unfocused)
+          this.el.sceneEl.removeEventListener('mousedown', this.onMouseDown);
+          this.el.sceneEl.removeEventListener('mousemove', this.onMouseMove);
+          this.el.sceneEl.removeEventListener('mouseup', this.onMouseUp);
+          this.el.sceneEl.removeEventListener('touchstart', this.onMouseDown);
+          this.el.sceneEl.removeEventListener('touchmove', this.onMouseMove);
+          this.el.sceneEl.removeEventListener('touchend', this.onMouseUp);
+        },
+
+        onMouseDown: function (evt) {
+          this.isDragging = true;
+          // Handle both mouse and touch coordinates
+          this.startX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+          // Store current rotation to ensure cumulative addition
+          this.currentRotationY = this.el.object3D.rotation.y;
+        },
+
+        onMouseMove: function (evt) {
+          if (!this.isDragging) return;
+
+          const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+          const deltaX = clientX - this.startX;
+
+          // Apply rotation: Initial + (Delta * Speed)
+          this.el.object3D.rotation.y = this.currentRotationY + (deltaX * this.data.speed);
+        },
+
+        onMouseUp: function () {
+          this.isDragging = false;
+        }
+      });
+    </script>
+  </head>
+  <body>
+
+    <!-- Header Layer -->
+    <div id="header-overlay">
+      <h1 class="brand-title">Jeweller's</h1>
+    </div>
+
+    <!-- UI Layer -->
+    <div id="ui-layer">
+      <button id="close-btn" class="close-btn">Return to Box</button>
+    </div>
+
+    <!-- 3D Scene -->
+    <!-- renderer: physicallyCorrectLights enables PBR lighting calculations -->
+    <a-scene 
+      renderer="colorManagement: true; physicallyCorrectLights: true; antialias: true" 
+      cursor="rayOrigin: mouse" 
+      raycaster="objects: .clickable">
+
+      <!-- Assets -->
+      <a-assets>
+        <!-- Using a simple mixin for the gold material to ensure consistency -->
+        <a-mixin id="gold-material" 
+          material="color: #FFD700; metalness: 1.0; roughness: 0.15;"></a-mixin>
+        <a-mixin id="silver-material" 
+          material="color: #C0C0C0; metalness: 1.0; roughness: 0.15;"></a-mixin>
+        <a-mixin id="diamond-material" 
+          material="color: #F0F8FF; metalness: 0.9; roughness: 0.0; opacity: 0.5; transparent: true; side: double;"></a-mixin>
+      </a-assets>
+
+      <!-- Lighting Setup for PBR -->
+      <!-- Ambient light for base visibility -->
+      <a-light type="ambient" color="#ffffff" intensity="0.3"></a-light>
+      <!-- Directional light acting as a 'Sun' or spotlight for specular highlights -->
+      <a-light type="directional" position="-2 4 4" intensity="2" castShadow="true"></a-light>
+      <!-- Point lights to add sparkle to the metal -->
+      <a-light type="point" position="2 3 2" intensity="1" color="#ffeedd"></a-light>
+
+      <!-- Camera -->
+      <a-entity position="0 1.6 4">
+        <a-camera look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
+      </a-entity>
+
+      <!-- The Jewellery Box (Base) -->
+      <a-box position="0 0.5 0" width="4" height="0.2" depth="2" color="#1a1a1a" roughness="0.8"></a-box>
+      <a-plane position="0 0.6 0" rotation="-90 0 0" width="3.8" height="1.8" color="#330000" roughness="1"></a-plane>
+
+      <!-- Ring 1 (Left): High-Fidelity Solitaire (Doji Style) -->
+      <a-entity position="-1 1 0" ring-interaction>
+        <!-- Container for rotation to ensure band and gem move together -->
+        <a-entity rotation="0 45 0">
+          <!-- Delicate Band -->
+          <a-entity class="clickable" geometry="primitive: torus; radius: 0.22; radiusTubular: 0.012; arc: 360" 
+                    mixin="gold-material"></a-entity>
+          
+          <!-- Setting & Diamond -->
+          <a-entity position="0 0.22 0">
+             <!-- Prongs -->
+             <a-entity class="clickable" geometry="primitive: cylinder; radius: 0.003; height: 0.06" mixin="gold-material" position="0.03 0.02 0.03" rotation="0 0 -15"></a-entity>
+             <a-entity class="clickable" geometry="primitive: cylinder; radius: 0.003; height: 0.06" mixin="gold-material" position="-0.03 0.02 0.03" rotation="0 0 15"></a-entity>
+             <a-entity class="clickable" geometry="primitive: cylinder; radius: 0.003; height: 0.06" mixin="gold-material" position="0.03 0.02 -0.03" rotation="15 0 0"></a-entity>
+             <a-entity class="clickable" geometry="primitive: cylinder; radius: 0.003; height: 0.06" mixin="gold-material" position="-0.03 0.02 -0.03" rotation="-15 0 0"></a-entity>
+             
+             <!-- Diamond (Composite: Pavilion + Crown) -->
+             <a-entity class="clickable" geometry="primitive: cone; radiusTop: 0.055; radiusBottom: 0.002; height: 0.05" mixin="diamond-material" position="0 -0.01 0"></a-entity>
+             <a-entity class="clickable" geometry="primitive: cone; radiusTop: 0.03; radiusBottom: 0.055; height: 0.02" mixin="diamond-material" position="0 0.025 0"></a-entity>
+          </a-entity>
+        </a-entity>
+      </a-entity>
+
+      <!-- Ring 2 (Center): Thick Silver Wedding Band -->
+      <a-entity position="0 1 0" ring-interaction>
+        <a-entity class="clickable" 
+                  geometry="primitive: torus; radius: 0.25; radiusTubular: 0.05" 
+                  mixin="silver-material" 
+                  rotation="0 0 0"></a-entity>
+      </a-entity>
+
+      <!-- Ring 3 (Right): Rose Gold Statement Knot -->
+      <a-entity position="1 1 0" ring-interaction>
+        <a-entity class="clickable" 
+                  geometry="primitive: torusKnot; radius: 0.22; radiusTubular: 0.025; p: 3; q: 4" 
+                  material="color: #B76E79; metalness: 0.9; roughness: 0.2" 
+                  rotation="0 -30 0"></a-entity>
+      </a-entity>
+
+      <!-- Background Environment -->
+      <a-sky color="#111"></a-sky>
+
+    </a-scene>
+  </body>
+</html>
