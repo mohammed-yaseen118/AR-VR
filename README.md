@@ -1,4 +1,4 @@
-# 3D Interactive Jewellery Display (A-Frame)
+# 3D Interactive Jewellery Display 
 
 ## Overview
 This project is a high-fidelity **3D Interactive Jewellery Display** developed using the **A-Frame framework**.  
